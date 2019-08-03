@@ -1,0 +1,30 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Stop firewalld
+      service:
+        name: firewalld
+        state: stopped
+
+    - name: Add ceph repo
+      yum_repository:
+        name: ceph
+        description: ceph
+        baseurl: http://download.ceph.com/rpm-jewel/$releasever/$basearch/
+
+    - name: install tools
+      yum:
+        name:
+          - epel-release
+          - ceph-release
+          - ceph
+          - ceph-deploy
+          - ceph-radosgw
+          - yum-plugin-priorities
+          - vim
+        state: latest
+
+    - name: Put SELinux in permissive mode
+      selinux:
+        policy: targeted
+        state: permissive
