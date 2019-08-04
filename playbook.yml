@@ -1,3 +1,7 @@
+# TODO: Create mounting clientnode
+# Checkout ansible-ceph playbooks
+# Firewall
+
 - hosts: all
   become: true
   tasks:
@@ -101,6 +105,16 @@
       ceph-deploy
       mon create-initial
 
+  - name: add monitor cephstor2
+    command: >
+      ceph-deploy
+      mon add cephstor2
+
+  - name: add monitor cephstor3
+    command: >
+      ceph-deploy
+      mon add cephstor3
+
   - name: ceph-deploy admin
     command: >
       ceph-deploy
@@ -129,5 +143,24 @@
 - hosts: cephstor1
   become: true
   tasks:
+    # https://docs.ceph.com/docs/master/cephfs/createfs/#creating-pools
+    - name: Build a ceph data pool
+      command: ceph osd pool create cephfs_data 16
+
+    - name: Build a ceph metadata pool
+      command: ceph osd pool create cephfs_metadata 16
+
+    - name: Build a ceph filesystem
+      command: ceph fs new cephfs cephfs_metadata cephfs_data
+
+    - name: Create an MDS
+      command: ceph-deploy mds create cephstor1
+
     - name: storage status
       command: ceph -s
+      register: cephstatus
+
+    - name: show result
+      debug:
+        msg: "{{ cephstatus.stdout_lines }}"
+
