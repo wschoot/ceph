@@ -8,23 +8,126 @@
 
     - name: Add ceph repo
       yum_repository:
-        name: ceph
-        description: ceph
-        baseurl: http://download.ceph.com/rpm-jewel/$releasever/$basearch/
+        name: ceph-x86
+        description: ceph-x86
+        baseurl: http://download.ceph.com/rpm-nautilus/el$releasever/$basearch/
 
-    - name: install tools
+    - name: Add ceph repo
+      yum_repository:
+        name: ceph-noarch
+        description: ceph-noarch
+        baseurl: http://download.ceph.com/rpm-nautilus/el$releasever/noarch/
+
+    - name: import key
+      rpm_key:
+        state: present
+        key: https://download.ceph.com/keys/release.asc
+
+    - name: install tools (releases)
       yum:
         name:
           - epel-release
           - ceph-release
+        state: installed
+
+    - name: install tools
+      yum:
+        name:
           - ceph
           - ceph-deploy
           - ceph-radosgw
           - yum-plugin-priorities
           - vim
-        state: latest
+        state: installed
 
     - name: Put SELinux in permissive mode
       selinux:
         policy: targeted
         state: permissive
+
+    - name: disable StrictHostKeyChecking
+      lineinfile:
+        path: /etc/ssh/ssh_config
+        line: "StrictHostKeyChecking no"
+
+- hosts: cephmaster
+  become: true
+  tasks:
+    - name: Make SSH private key
+      command: ssh-keygen -t rsa -N '' -f /root/.ssh/id_rsa
+      args:
+        creates: /root/.ssh/id_rsa
+
+    - name: Save SSH public key
+      slurp:
+        src: /root/.ssh/id_rsa.pub
+      register: pubkey
+
+- hosts: cephstor
+  become: true
+  tasks:
+    - name: Put public key on cephstors
+      authorized_key:
+        user: root
+        key: "{{ hostvars['cephmaster']['pubkey']['content'] | b64decode }}"
+
+    - name: make storage folders
+      file:
+        state: directory
+        path: /var/local/osd
+        owner: ceph
+
+- hosts: cephmaster
+  become: true
+  tasks:
+  - name: Initialize cluster
+    command: >
+      ceph-deploy
+      new cephmaster
+      --public-network 10.0.15.10/24
+      --cluster-network 10.0.15.10/24
+
+  - name: build cluster
+    command: >
+      ceph-deploy
+      install
+      cephmaster
+      cephstor1
+      cephstor2
+      cephstor3
+
+  - name: start mon
+    command: >
+      ceph-deploy
+      mon create-initial
+
+  - name: ceph-deploy admin
+    command: >
+      ceph-deploy
+      admin
+      cephstor1
+      cephstor2
+      cephstor3
+
+  - name: Add storage to cluster
+    command: >
+      ceph-deploy
+      osd create
+      --data /dev/vdb
+      {{ item }}
+    loop:
+      - cephstor1
+      - cephstor2
+      - cephstor3
+
+  - name: ceph-deploy mgr
+    command: >
+      ceph-deploy
+      mgr
+      create cephstor1
+
+- hosts: cephstor1
+  become: true
+  tasks:
+    - name: storage status
+      command: ceph -s
